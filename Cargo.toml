@@ -1,0 +1,17 @@
+[package]
+name = "aoi"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+musicbrainz_rs = "0.9.0"
+listenbrainz = "0.8.1"
+tera = "1"
+axum = "0.8.1"
+tokio = { version = "1.43.0", features = ["full"] }
+tower = "0.5.2"
+resvg = "0.44.0"
+usvg = "0.44.0"
+reqwest = "0.12.12"
+base64 = "0.21.0"
+moka = { version = "0.12.10", features = ["future"] }

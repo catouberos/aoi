@@ -1,0 +1,35 @@
+{%- set width = 1200 -%} {%- set height = 200 -%} {%- set base_padding = 24 -%}
+{%- set image_size = height - base_padding - base_padding -%}
+
+<svg
+  width="{{ width }}"
+  height="{{ height }}"
+  xmlns="http://www.w3.org/2000/svg"
+  xmlns:xlink="http://www.w3.org/1999/xlink"
+  font-family="Inter"
+  font-size="24"
+  fill="#f5f5f5"
+>
+  <rect width="100%" height="100%" fill="#171717" />
+
+  <image
+    x="{{ base_padding }}"
+    y="{{ base_padding }}"
+    height="{{ image_size }}"
+    width="{{ image_size }}"
+    xlink:href="{{ image | safe }}"
+  />
+  {% set line_position_y = base_padding + 36 + base_padding %}
+  <text
+    x="{{ height }}"
+    y="{{ line_position_y }}"
+    font-size="36"
+    font-weight="bold"
+  >
+    {{ title }}
+  </text>
+  {%- set line_position_y = line_position_y + 24 + base_padding -%}
+  <text x="{{ height }}" y="{{ line_position_y }}" fill="#737373">
+    {{ artist }}
+  </text>
+</svg>

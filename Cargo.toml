@@ -15,3 +15,4 @@ usvg = "0.44.0"
 reqwest = "0.12.12"
 base64 = "0.21.0"
 moka = { version = "0.12.10", features = ["future"] }
+unicode-segmentation = "1.12.0"

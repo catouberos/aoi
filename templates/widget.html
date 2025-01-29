@@ -10,15 +10,25 @@
   xmlns:xlink="http://www.w3.org/1999/xlink"
   font-family="Inter"
   font-size="24"
-  fill="#f5f5f5"
+  fill="{% if fill %}{{ fill }}{% elif dark %}#f5f5f5{% else %}#171717{% endif %}"
 >
+  {% if dark %}
   <rect width="100%" height="100%" fill="#171717" />
+  {% elif light %}
+  <rect width="100%" height="100%" fill="#f5f5f5" />
+  {% endif %}
+
+  <filter id="dropShadow" x="0" y="0" width="200" height="200" filterUnits="userSpaceOnUse">
+    <feDropShadow stdDeviation="6" flood-color="#f5f5f5"
+                  flood-opacity="0.75"/>
+  </filter>
 
   <image
     x="{{ base_padding }}"
     y="{{ base_padding }}"
     height="{{ image_size }}"
     width="{{ image_size }}"
+    filter="url(#dropShadow)"
     xlink:href="{{ image | safe }}"
   />
   {% set line_position_y = base_padding + 36 + base_padding %}
@@ -31,7 +41,7 @@
     {{ title }}
   </text>
   {%- set line_position_y = line_position_y + 24 + base_padding -%}
-  <text x="{{ height }}" y="{{ line_position_y }}" fill="#737373">
+  <text x="{{ height }}" y="{{ line_position_y }}" fill="{% if fill %}{{ fill }}{% elif dark %}#737373{% else %}#a1a1a1{% endif %}">
     {{ artist }}
   </text>
 </svg>

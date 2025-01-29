@@ -1,8 +1,11 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
-use aoi::playing::now_playing;
+use aoi::{
+    playing::{now_playing, previous_listen},
+    template::playing_template,
+};
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::header,
     response::IntoResponse,
     routing::get,
@@ -13,7 +16,7 @@ use listenbrainz::raw::Client;
 use moka::future::Cache;
 use reqwest::StatusCode;
 use resvg::{render, tiny_skia::Pixmap};
-use tera::{Context, Tera};
+use tera::Tera;
 use usvg::{Options, Transform, Tree};
 
 #[derive(Clone)]
@@ -43,6 +46,7 @@ async fn main() {
     // build our application with a single route
     let app = Router::new()
         .route("/{id}", get(get_playing_now))
+        .route("/{id}/previous", get(get_playing_now))
         .with_state(AppState {
             tera,
             response_cache,
@@ -56,57 +60,64 @@ async fn main() {
 
 async fn get_playing_now(
     State(state): State<AppState>,
-    Path(path): Path<String>,
+    Path(id): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    match state.response_cache.get(&path).await {
-        Some(val) => {
-            println!("Cache HIT, user {}", path);
-            return Ok((
-                [
-                    (header::CONTENT_TYPE, "image/png"),
-                    (
-                        header::CONTENT_DISPOSITION,
-                        "inline; filename=\"now-playing.png\"",
-                    ),
-                ],
-                val,
-            ));
-        }
-        None => println!("Cache MISS, user {}", path),
-    };
+    /*
+    * TODO: hit cache
+        match state.response_cache.get(&id).await {
+            Some(val) => {
+                println!("Cache HIT, user {}", id);
+                return Ok((
+                    [
+                        (header::CONTENT_TYPE, "image/png"),
+                        (
+                            header::CONTENT_DISPOSITION,
+                            "inline; filename=\"now-playing.png\"",
+                        ),
+                    ],
+                    val,
+                ));
+            }
+            None => println!("Cache MISS, user {}", id),
+        };
+    */
 
     let client = Client::new();
 
-    let mut context = Context::new();
-
-    let (track, release_group) = match now_playing(client, path.clone()).await {
+    let listen = match now_playing(&client, &id).await {
         Ok(val) => val,
-        Err(err) => panic!("Error while getting now playing: {}", err),
+        Err(_) => match previous_listen(&client, &id).await {
+            Ok(val) => val,
+            Err(_) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("User has no listen history"),
+                ))
+            }
+        },
     };
 
     let image = format!(
         "https://coverartarchive.org/release-group/{}/front-250.jpg",
-        release_group.id,
+        listen.release_group,
     );
 
     let image_data = reqwest::get(&image).await.unwrap().bytes().await.unwrap();
     let image_encoded = general_purpose::STANDARD.encode(&image_data);
 
-    let track_name = track.track_metadata.track_name;
-    let artist_name = track.track_metadata.artist_name;
+    let color_mode = params.get("color_mode");
+    let fill = params.get("fill");
 
-    context.insert("title", &track_name);
-    context.insert("artist", &artist_name);
-    context.insert(
-        "image",
-        &format!("data:image/jpeg;base64,{}", &image_encoded),
-    );
-
-    let template = state
-        .tera
-        .render("widget.html", &context)
-        .unwrap()
-        .to_string();
+    let template = playing_template(
+        state.tera,
+        &listen.title,
+        &listen.artist,
+        &image_encoded,
+        color_mode,
+        fill,
+    )
+    .unwrap();
 
     let mut opt = Options::default();
 
@@ -120,10 +131,13 @@ async fn get_playing_now(
 
     let result = pixmap.encode_png().unwrap();
 
-    state
-        .response_cache
-        .insert(path.clone(), result.clone())
-        .await;
+    /*
+    * TODO: insert cache
+        state
+            .response_cache
+            .insert(id.clone(), result.clone())
+            .await;
+    */
 
     Ok((
         [

@@ -50,6 +50,7 @@ dependencies = [
  "listenbrainz",
  "moka",
  "musicbrainz_rs",
+ "regex",
  "reqwest",
  "resvg",
  "tera",

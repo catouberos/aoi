@@ -8,7 +8,7 @@ RUN cargo install --path .
 # base image
 FROM debian:bookworm-slim AS app
 WORKDIR /app
-RUN apt update && apt install -y fonts-noto-cjk fonts-inter openssl
+RUN apt update && apt install -y fonts-noto-cjk fonts-inter openssl ca-certificates
 COPY --from=builder /usr/local/cargo/bin/aoi /usr/local/bin/aoi
-COPY templates .
+COPY templates ./templates
 ENTRYPOINT ["aoi"]

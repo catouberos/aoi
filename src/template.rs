@@ -65,7 +65,7 @@ pub fn playing_template(
         &tera,
         width - height - 24,
         Some("Inter"),
-        Some(24),
+        Some(28),
         Some("400"),
         &artist,
     ) {

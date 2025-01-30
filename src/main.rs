@@ -1,7 +1,7 @@
 use std::{collections::HashMap, time::Duration};
 
 use aoi::{
-    playing::{now_playing, previous_listen},
+    playing::{cover_art_by_release_group, now_playing, previous_listen},
     template::playing_template,
 };
 use axum::{
@@ -11,7 +11,6 @@ use axum::{
     routing::get,
     Router,
 };
-use base64::{engine::general_purpose, Engine};
 use listenbrainz::raw::Client;
 use moka::future::Cache;
 use reqwest::StatusCode;
@@ -23,14 +22,16 @@ use usvg::{Options, Transform, Tree};
 pub struct AppState {
     pub tera: Tera,
     pub response_cache: Cache<String, Vec<u8>>,
-    pub cover_art_cache: Cache<String, Vec<u8>>,
+    pub cover_art_cache: Cache<String, String>,
 }
 
 #[tokio::main]
 async fn main() {
+    // cache response data for 1 minute
     let response_cache = Cache::builder()
-        .time_to_live(Duration::from_secs(30))
+        .time_to_live(Duration::from_secs(60))
         .build();
+    // cache cover art data for 5 days
     let cover_art_cache = Cache::builder()
         .time_to_live(Duration::from_secs(5 * 24 * 60 * 60))
         .build();
@@ -63,32 +64,46 @@ async fn get_playing_now(
     Path(id): Path<String>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    /*
-    * TODO: hit cache
-        match state.response_cache.get(&id).await {
-            Some(val) => {
-                println!("Cache HIT, user {}", id);
-                return Ok((
-                    [
-                        (header::CONTENT_TYPE, "image/png"),
-                        (
-                            header::CONTENT_DISPOSITION,
-                            "inline; filename=\"now-playing.png\"",
-                        ),
-                    ],
-                    val,
-                ));
-            }
-            None => println!("Cache MISS, user {}", id),
-        };
-    */
+    const WIDTH: i32 = 1000;
+    const HEIGHT: i32 = 200;
+
+    let color_mode = params.get("color_mode");
+    let fill = params.get("fill");
+    let transparent = params.get("transparent");
+
+    match state
+        .response_cache
+        .get(&format!(
+            "{}-{}-{}-{}",
+            id,
+            color_mode.unwrap_or(&String::new()),
+            fill.unwrap_or(&String::new()),
+            transparent.unwrap_or(&String::new())
+        ))
+        .await
+    {
+        Some(val) => {
+            println!("Cache HIT, user {}", id);
+            return Ok((
+                [
+                    (header::CONTENT_TYPE, "image/png"),
+                    (
+                        header::CONTENT_DISPOSITION,
+                        "inline; filename=\"now-playing.png\"",
+                    ),
+                ],
+                val,
+            ));
+        }
+        None => println!("Cache MISS, user {}", id),
+    };
 
     let client = Client::new();
 
-    let listen = match now_playing(&client, &id).await {
-        Ok(val) => val,
+    let (listen, listening) = match now_playing(&client, &id).await {
+        Ok(val) => (val, true),
         Err(_) => match previous_listen(&client, &id).await {
-            Ok(val) => val,
+            Ok(val) => (val, false),
             Err(_) => {
                 return Err((
                     StatusCode::BAD_REQUEST,
@@ -98,24 +113,41 @@ async fn get_playing_now(
         },
     };
 
-    let image = format!(
-        "https://coverartarchive.org/release-group/{}/front-250.jpg",
-        listen.release_group,
-    );
-
-    let image_data = reqwest::get(&image).await.unwrap().bytes().await.unwrap();
-    let image_encoded = general_purpose::STANDARD.encode(&image_data);
-
-    let color_mode = params.get("color_mode");
-    let fill = params.get("fill");
+    let image = match state.cover_art_cache.get(&listen.release_group).await {
+        Some(val) => {
+            println!(
+                "Cache HIT, getting cover art of release group #{}",
+                &listen.release_group
+            );
+            Some(val)
+        }
+        None => match cover_art_by_release_group(&listen.release_group).await {
+            Ok(val) => {
+                println!(
+                    "Cache MISS, inserting cover art of release group #{}",
+                    &listen.release_group
+                );
+                state
+                    .cover_art_cache
+                    .insert(listen.release_group.clone(), val.clone())
+                    .await;
+                Some(val)
+            }
+            Err(_err) => None,
+        },
+    };
 
     let template = playing_template(
-        state.tera,
+        &state.tera,
+        WIDTH,
+        HEIGHT,
         &listen.title,
         &listen.artist,
-        &image_encoded,
+        &image.unwrap_or_default(),
         color_mode,
         fill,
+        transparent.is_some(),
+        listening,
     )
     .unwrap();
 
@@ -131,13 +163,19 @@ async fn get_playing_now(
 
     let result = pixmap.encode_png().unwrap();
 
-    /*
-    * TODO: insert cache
-        state
-            .response_cache
-            .insert(id.clone(), result.clone())
-            .await;
-    */
+    state
+        .response_cache
+        .insert(
+            format!(
+                "{}-{}-{}-{}",
+                id,
+                color_mode.unwrap_or(&String::new()),
+                fill.unwrap_or(&String::new()),
+                transparent.unwrap_or(&String::new())
+            ),
+            result.clone(),
+        )
+        .await;
 
     Ok((
         [

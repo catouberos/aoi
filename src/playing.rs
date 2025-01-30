@@ -1,9 +1,11 @@
+use base64::{engine::general_purpose, Engine};
 use listenbrainz::raw::Client;
 use musicbrainz_rs::{
     entity::{release::Release, release_group::ReleaseGroup},
     Browse,
 };
 
+#[derive(Clone)]
 pub struct ListenData {
     pub title: String,
     pub artist: String,
@@ -15,8 +17,6 @@ pub async fn now_playing(client: &Client, user: &String) -> Result<ListenData, S
         Ok(val) => val,
         Err(err) => return Err(format!("Error while getting user now playing: {}", err)),
     };
-
-    println!("{:#?}", now_playing);
 
     let listen = match now_playing.payload.listens.first() {
         Some(val) => val,
@@ -55,8 +55,6 @@ pub async fn previous_listens(
         Err(err) => return Err(format!("Error while getting user listens: {}", err)),
     };
 
-    println!("{:#?}", listens.payload.listens);
-
     Ok(listens
         .payload
         .listens
@@ -80,8 +78,6 @@ pub async fn previous_listen(client: &Client, user: &String) -> Result<ListenDat
         Err(err) => return Err(format!("Error while getting user listens: {}", err)),
     };
 
-    println!("{:#?}", listens.payload.listens);
-
     let listen = listens.payload.listens.first().unwrap().clone();
 
     let release = release_by_recording(&listen.track_metadata.mbid_mapping.unwrap().recording_mbid)
@@ -96,18 +92,39 @@ pub async fn previous_listen(client: &Client, user: &String) -> Result<ListenDat
     })
 }
 
+pub async fn cover_art_by_release_group(release_group: &String) -> Result<String, String> {
+    let image = format!(
+        "https://coverartarchive.org/release-group/{}/front-250.jpg",
+        release_group,
+    );
+
+    let response = match reqwest::get(&image).await {
+        Ok(val) => val,
+        Err(err) => return Err(format!("Error while getting image data: {:#?}", err)),
+    };
+
+    let data = match response.bytes().await {
+        Ok(val) => val,
+        Err(err) => return Err(format!("Error while parsing image bytes: {:#?}", err)),
+    };
+
+    let encoded = general_purpose::STANDARD.encode(&data);
+
+    Ok(encoded)
+}
+
 pub async fn release_by_recording(recording_id: &String) -> Result<Release, String> {
     let results = match Release::browse().by_recording(recording_id).execute().await {
         Ok(val) => val,
         Err(err) => return Err(format!("Error while browsing release: {}", err)),
     };
 
-    let release_group = match results.entities.first() {
+    let release = match results.entities.first() {
         Some(val) => val,
-        None => return Err(format!("Error while getting release")),
+        None => return Err(format!("No release found!")),
     };
 
-    Ok(release_group.clone())
+    Ok(release.clone())
 }
 
 pub async fn release_group_by_release(release_id: &String) -> Result<ReleaseGroup, String> {
@@ -122,7 +139,7 @@ pub async fn release_group_by_release(release_id: &String) -> Result<ReleaseGrou
 
     let release_group = match results.entities.first() {
         Some(val) => val,
-        None => return Err(format!("Error while getting release group")),
+        None => return Err(format!("No release group found!")),
     };
 
     Ok(release_group.clone())

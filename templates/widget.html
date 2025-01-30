@@ -1,7 +1,7 @@
-{%- set width = 1200 -%}
-{%- set height = 200 -%}
-{%- set base_padding = 24 -%}
-{%- set image_size = height - base_padding - base_padding -%}
+{% if not width %}{% set width = 1200 %}{% endif %}
+{% if not height %}{% set height = 200 %}{% endif %}
+{% if not base_padding %}{% set base_padding = 24 %}{% endif %}
+{% set image_size = height - base_padding - base_padding %}
 
 <svg
   width="{{ width }}"
@@ -12,15 +12,22 @@
   font-size="24"
   fill="{% if fill %}{{ fill }}{% elif dark %}#f5f5f5{% else %}#171717{% endif %}"
 >
-  {% if dark %}
-  <rect width="100%" height="100%" fill="#171717" />
-  {% elif light %}
-  <rect width="100%" height="100%" fill="#f5f5f5" />
+  {% if not transparent %}
+    {% if dark %}
+    <rect width="100%" height="100%" fill="#171717" />
+    {% elif light %}
+    <rect width="100%" height="100%" fill="#f5f5f5" />
+    {% endif %}
   {% endif %}
 
   <filter id="dropShadow" x="0" y="0" width="200" height="200" filterUnits="userSpaceOnUse">
-    <feDropShadow stdDeviation="6" flood-color="#f5f5f5"
-                  flood-opacity="0.75"/>
+    {% if dark %}
+    <feDropShadow stdDeviation="6" flood-color="#ffffff"
+                  flood-opacity="0.5"/>
+    {% elif light %}
+    <feDropShadow stdDeviation="6" flood-color="#000000"
+                  flood-opacity="0.25"/>
+    {% endif %}
   </filter>
 
   <image
@@ -31,17 +38,39 @@
     filter="url(#dropShadow)"
     xlink:href="{{ image | safe }}"
   />
-  {% set line_position_y = base_padding + 36 + base_padding %}
-  <text
-    x="{{ height }}"
-    y="{{ line_position_y }}"
-    font-size="36"
-    font-weight="bold"
-  >
-    {{ title }}
-  </text>
-  {%- set line_position_y = line_position_y + 24 + base_padding -%}
-  <text x="{{ height }}" y="{{ line_position_y }}" fill="{% if fill %}{{ fill }}{% elif dark %}#737373{% else %}#a1a1a1{% endif %}">
-    {{ artist }}
-  </text>
-</svg>
+
+  {%- set line_position_y = base_padding + 16 -%}
+  <svg x="{{ height }}" y="{{ line_position_y }}">
+    {%- set line_position_y = 20 -%}
+    {% if listening %}
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{% if fill %}{{ fill }}{% elif dark %}#737373{% else %}#a1a1a1{% endif %}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play" y="{{ line_position_y - 16 }}">
+      <polygon points="6 3 20 12 6 21 6 3"/>
+    </svg>
+    <text x="24" y="{{ line_position_y }}" fill="{% if fill %}{{ fill }}{% elif dark %}#737373{% else %}#a1a1a1{% endif %}">
+      Listening to
+    </text>
+    {% else %}
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{% if fill %}{{ fill }}{% elif dark %}#737373{% else %}#a1a1a1{% endif %}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-history" y="{{ line_position_y - 16 }}">
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+      <path d="M3 3v5h5"/>
+      <path d="M12 7v5l4 2"/>
+    </svg>
+    <text x="24" y="{{ line_position_y }}" fill="{% if fill %}{{ fill }}{% elif dark %}#737373{% else %}#a1a1a1{% endif %}">
+      Previously listened to
+    </text>
+    {% endif %}
+    {%- set line_position_y = line_position_y + 12 + 36 -%}
+    <text
+      x="0"
+      y="{{ line_position_y }}"
+      font-size="36"
+      font-weight="bold"
+    >
+      {{ title }}
+    </text>
+    {%- set line_position_y = line_position_y + 16 + 28 -%}
+    <text y="{{ line_position_y }}" fill="{% if fill %}{{ fill }}{% elif dark %}#737373{% else %}#a1a1a1{% endif %}" font-size="28">
+      {{ artist }}
+    </text>
+  </svg>
+ </svg>

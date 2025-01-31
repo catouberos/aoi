@@ -31,9 +31,15 @@ async fn main() {
     let response_cache = Cache::builder()
         .time_to_live(Duration::from_secs(60))
         .build();
-    // cache cover art data for 5 days
+    // cache cover art data for 1 day
     let cover_art_cache = Cache::builder()
-        .time_to_live(Duration::from_secs(5 * 24 * 60 * 60))
+        .time_to_live(Duration::from_secs(1 * 24 * 60 * 60))
+        // A weigher closure takes &K and &V and returns a u32 representing the
+        // relative size of the entry. Here, we use the byte length of the value
+        // String as the size.
+        .weigher(|_key, value: &String| -> u32 { value.len().try_into().unwrap_or(u32::MAX) })
+        // This cache will hold up to 64MiB of values.
+        .max_capacity(64 * 1024 * 1024)
         .build();
 
     let tera = match Tera::new("templates/**/*.html") {

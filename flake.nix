@@ -45,6 +45,7 @@
           cargo-deny
           cargo-edit
           cargo-watch
+          flyctl
           rust-analyzer
         ];
 

@@ -48,6 +48,7 @@ dependencies = [
  "axum",
  "base64 0.21.7",
  "listenbrainz",
+ "log",
  "moka",
  "musicbrainz_rs",
  "regex",

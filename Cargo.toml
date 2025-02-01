@@ -17,3 +17,4 @@ base64 = "0.21.0"
 moka = { version = "0.12.10", features = ["future"] }
 unicode-segmentation = "1.12.0"
 regex = "1.11.1"
+log = "0.4.25"

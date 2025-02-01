@@ -242,7 +242,7 @@ pub async fn release_by_recording(recording_id: &String) -> Result<Release, Stri
 
 pub async fn release_group_by_release(release_id: &String) -> Result<ReleaseGroup, String> {
     let results = match ReleaseGroup::browse()
-        .by_release(&release_id)
+        .by_release(release_id)
         .execute()
         .await
     {

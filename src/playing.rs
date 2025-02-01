@@ -35,11 +35,16 @@ pub async fn now_playing(client: &Client, user: &String) -> Result<ListenData, S
     let artist = listen.track_metadata.artist_name.clone();
 
     let release_group =
-        if let Some(release_id) = listen.track_metadata.additional_info.get("release_mbid") {
-            if let Ok(release_group) = release_group_by_release(&release_id.to_string()).await {
-                Some(release_group.id)
+        if let Some(release_id_value) = listen.track_metadata.additional_info.get("release_mbid") {
+            if let Some(release_id) = release_id_value.as_str() {
+                if let Ok(release_group) = release_group_by_release(&release_id.to_string()).await {
+                    Some(release_group.id)
+                } else {
+                    warn!("Cannot get release group for release {release_id}");
+                    None
+                }
             } else {
-                warn!("Cannot get release group for release {release_id}");
+                warn!("Cannot parse release ID");
                 None
             }
         } else {
@@ -47,17 +52,21 @@ pub async fn now_playing(client: &Client, user: &String) -> Result<ListenData, S
             None
         };
 
-    let spotify_path = if let Some(spotify_id) = listen
+    let spotify_path = if let Some(spotify_id_value) = listen
         .track_metadata
         .additional_info
         .get("spotify_album_id")
     {
-        Some(
-            spotify_id
-                .to_string()
-                .replace("https://open.spotify.com/", "")
-                .replace("\"", ""),
-        )
+        if let Some(spotify_id) = spotify_id_value.as_str() {
+            Some(
+                spotify_id
+                    .to_string()
+                    .replace("https://open.spotify.com/", ""),
+            )
+        } else {
+            warn!("Cannot Spotify album ID");
+            None
+        }
     } else {
         None
     };
@@ -125,17 +134,21 @@ pub async fn previous_listen(client: &Client, user: &String) -> Result<ListenDat
         None
     };
 
-    let spotify_path = if let Some(spotify_id) = listen
+    let spotify_path = if let Some(spotify_id_value) = listen
         .track_metadata
         .additional_info
         .get("spotify_album_id")
     {
-        Some(
-            spotify_id
-                .to_string()
-                .replace("https://open.spotify.com/", "")
-                .replace("\"", ""),
-        )
+        if let Some(spotify_id) = spotify_id_value.as_str() {
+            Some(
+                spotify_id
+                    .to_string()
+                    .replace("https://open.spotify.com/", ""),
+            )
+        } else {
+            warn!("Cannot Spotify album ID");
+            None
+        }
     } else {
         None
     };

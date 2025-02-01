@@ -1,7 +1,10 @@
 use std::{collections::HashMap, time::Duration};
 
 use aoi::{
-    playing::{cover_art_by_release_group, now_playing, previous_listen},
+    logger::SimpleLogger,
+    playing::{
+        cover_art_by_release_group, cover_art_by_spotify_path, now_playing, previous_listen,
+    },
     template::playing_template,
 };
 use axum::{
@@ -12,6 +15,7 @@ use axum::{
     Router,
 };
 use listenbrainz::raw::Client;
+use log::{error, info, LevelFilter};
 use moka::future::Cache;
 use reqwest::StatusCode;
 use resvg::{render, tiny_skia::Pixmap};
@@ -25,8 +29,12 @@ pub struct AppState {
     pub cover_art_cache: Cache<String, String>,
 }
 
+static LOGGER: SimpleLogger = SimpleLogger;
+
 #[tokio::main]
 async fn main() {
+    let _ = log::set_logger(&LOGGER).map(|()| log::set_max_level(LevelFilter::Info));
+
     // cache response data for 1 minute
     let response_cache = Cache::builder()
         .time_to_live(Duration::from_secs(60))
@@ -45,7 +53,7 @@ async fn main() {
     let tera = match Tera::new("templates/**/*.html") {
         Ok(t) => t,
         Err(e) => {
-            println!("Parsing error(s): {}", e);
+            error!("Parsing error(s): {}", e);
             ::std::process::exit(1);
         }
     };
@@ -101,7 +109,7 @@ async fn get_playing_now(
                 val,
             ));
         }
-        None => println!("Cache MISS, user {}", id),
+        None => info!("Cache MISS, user {}", id),
     };
 
     let client = Client::new();
@@ -110,37 +118,69 @@ async fn get_playing_now(
         Ok(val) => (val, true),
         Err(_) => match previous_listen(&client, &id).await {
             Ok(val) => (val, false),
-            Err(_) => {
+            Err(err) => {
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    format!("User has no listen history"),
+                    format!("User has no listen history, error: {:#?}", err),
                 ))
             }
         },
     };
 
-    let image = match state.cover_art_cache.get(&listen.release_group).await {
-        Some(val) => {
-            println!(
-                "Cache HIT, getting cover art of release group #{}",
-                &listen.release_group
-            );
-            Some(val)
-        }
-        None => match cover_art_by_release_group(&listen.release_group).await {
-            Ok(val) => {
-                println!(
-                    "Cache MISS, inserting cover art of release group #{}",
-                    &listen.release_group
-                );
-                state
-                    .cover_art_cache
-                    .insert(listen.release_group.clone(), val.clone())
-                    .await;
-                Some(val)
+    let image = if let Some(metadata) = listen.metadata {
+        if let Some(release_group) = metadata.release_group {
+            match state.cover_art_cache.get(&release_group).await {
+                Some(val) => {
+                    info!(
+                        "Cache HIT, getting cover art of release group #{}",
+                        &release_group
+                    );
+                    Some(val)
+                }
+                None => match cover_art_by_release_group(&release_group).await {
+                    Ok(val) => {
+                        info!(
+                            "Cache MISS, inserting cover art of release group #{}",
+                            &release_group
+                        );
+                        state
+                            .cover_art_cache
+                            .insert(release_group.clone(), val.clone())
+                            .await;
+                        Some(val)
+                    }
+                    Err(_err) => None,
+                },
             }
-            Err(_err) => None,
-        },
+        } else if let Some(spotify_path) = metadata.spotify_path {
+            match state.cover_art_cache.get(&spotify_path).await {
+                Some(val) => {
+                    info!(
+                        "Cache HIT, getting cover art of Spotify path [{}]",
+                        &spotify_path
+                    );
+                    Some(val)
+                }
+                None => match cover_art_by_spotify_path(&spotify_path).await {
+                    Ok(val) => {
+                        info!(
+                            "Cache MISS, inserting cover art of Spotify path [{}]",
+                            &spotify_path
+                        );
+                        state
+                            .cover_art_cache
+                            .insert(spotify_path.clone(), val.clone())
+                            .await;
+                        Some(val)
+                    }
+                    Err(_err) => None,
+                },
+            }
+        } else {
+            None
+        }
+    } else {
+        None
     };
 
     let template = playing_template(

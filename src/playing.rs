@@ -1,15 +1,23 @@
 use base64::{engine::general_purpose, Engine};
 use listenbrainz::raw::Client;
+use log::{info, warn};
 use musicbrainz_rs::{
     entity::{release::Release, release_group::ReleaseGroup},
     Browse,
 };
+use regex::Regex;
+
+#[derive(Clone)]
+pub struct ListenMetadata {
+    pub release_group: Option<String>,
+    pub spotify_path: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct ListenData {
     pub title: String,
     pub artist: String,
-    pub release_group: String,
+    pub metadata: Option<ListenMetadata>,
 }
 
 pub async fn now_playing(client: &Client, user: &String) -> Result<ListenData, String> {
@@ -23,25 +31,44 @@ pub async fn now_playing(client: &Client, user: &String) -> Result<ListenData, S
         None => return Err(format!("User [{}] does not have any listen", user)),
     };
 
-    let release_id = match listen.track_metadata.additional_info.get("release_mbid") {
-        Some(val) => match val.as_str() {
-            Some(val) => val.to_string(),
-            None => return Err(format!("Cannot parse track release ID")),
-        },
-        None => {
-            return Err(format!(
-                "Track [{}] does not have a release ID",
-                listen.track_metadata.track_name
-            ))
-        }
+    let title = listen.track_metadata.track_name.clone();
+    let artist = listen.track_metadata.artist_name.clone();
+
+    let release_group =
+        if let Some(release_id) = listen.track_metadata.additional_info.get("release_mbid") {
+            if let Ok(release_group) = release_group_by_release(&release_id.to_string()).await {
+                Some(release_group.id)
+            } else {
+                warn!("Cannot get release group for release {release_id}");
+                None
+            }
+        } else {
+            warn!("Cannot get release for track");
+            None
+        };
+
+    let spotify_path = if let Some(spotify_id) = listen
+        .track_metadata
+        .additional_info
+        .get("spotify_album_id")
+    {
+        Some(
+            spotify_id
+                .to_string()
+                .replace("https://open.spotify.com/", "")
+                .replace("\"", ""),
+        )
+    } else {
+        None
     };
 
-    let release_group = release_group_by_release(&release_id).await.unwrap();
-
     Ok(ListenData {
-        title: listen.track_metadata.track_name.clone(),
-        artist: listen.track_metadata.artist_name.clone(),
-        release_group: release_group.id.clone(),
+        title,
+        artist,
+        metadata: Some(ListenMetadata {
+            release_group,
+            spotify_path,
+        }),
     })
 }
 
@@ -62,12 +89,7 @@ pub async fn previous_listens(
         .map(|listen| ListenData {
             title: listen.track_metadata.track_name.clone(),
             artist: listen.track_metadata.artist_name.clone(),
-            release_group: listen
-                .track_metadata
-                .additional_info
-                .get("release_group_mbid")
-                .unwrap()
-                .to_string(),
+            metadata: None,
         })
         .collect())
 }
@@ -80,15 +102,51 @@ pub async fn previous_listen(client: &Client, user: &String) -> Result<ListenDat
 
     let listen = listens.payload.listens.first().unwrap().clone();
 
-    let release = release_by_recording(&listen.track_metadata.mbid_mapping.unwrap().recording_mbid)
-        .await
-        .unwrap();
-    let release_group = release_group_by_release(&release.id).await.unwrap();
+    let title = listen.track_metadata.track_name.clone();
+    let artist = listen.track_metadata.artist_name.clone();
+
+    let release_group = if let Some(mapping) = listen.track_metadata.mbid_mapping {
+        let recording_id = mapping.recording_mbid;
+        if let Ok(release) = release_by_recording(&recording_id).await {
+            let release_id = release.id;
+            info!("Getting release group of release #{release_id}");
+            if let Ok(release_group) = release_group_by_release(&release_id).await {
+                Some(release_group.id)
+            } else {
+                warn!("Cannot get release group for release #{release_id}");
+                None
+            }
+        } else {
+            warn!("Cannot get release for recording #{recording_id}");
+            None
+        }
+    } else {
+        warn!("Cannot get release for track [{title}]");
+        None
+    };
+
+    let spotify_path = if let Some(spotify_id) = listen
+        .track_metadata
+        .additional_info
+        .get("spotify_album_id")
+    {
+        Some(
+            spotify_id
+                .to_string()
+                .replace("https://open.spotify.com/", "")
+                .replace("\"", ""),
+        )
+    } else {
+        None
+    };
 
     Ok(ListenData {
-        title: listen.track_metadata.track_name.clone(),
-        artist: listen.track_metadata.artist_name.clone(),
-        release_group: release_group.id.clone(),
+        title,
+        artist,
+        metadata: Some(ListenMetadata {
+            release_group,
+            spotify_path,
+        }),
     })
 }
 
@@ -111,6 +169,48 @@ pub async fn cover_art_by_release_group(release_group: &String) -> Result<String
     let encoded = general_purpose::STANDARD.encode(&data);
 
     Ok(encoded)
+}
+
+pub async fn cover_art_by_spotify_path(path: &String) -> Result<String, String> {
+    let url = format!("https://open.spotify.com/embed/{}", path);
+
+    let response = match reqwest::get(&url).await {
+        Ok(val) => val,
+        Err(err) => return Err(format!("Error while getting Spotify data: {:#?}", err)),
+    };
+
+    let data = match response.text().await {
+        Ok(val) => val,
+        Err(err) => return Err(format!("Error while parsing Spotify data: {:#?}", err)),
+    };
+
+    let re = Regex::new(r#"(https:\/\/image[\w-]+\.spotifycdn\.com\/image\/[\w\d]+)(\",\"((maxHeight)|(maxWidth))\":300)"#).unwrap();
+
+    let urls: Vec<&str> = re
+        .captures_iter(data.as_str())
+        .map(|c| {
+            let (_, [url, _, _, _]) = c.extract();
+            url
+        })
+        .collect();
+
+    if let Some(url) = urls.first() {
+        let response = match reqwest::get(*url).await {
+            Ok(val) => val,
+            Err(err) => return Err(format!("Error while getting image data: {:#?}", err)),
+        };
+
+        let data = match response.bytes().await {
+            Ok(val) => val,
+            Err(err) => return Err(format!("Error while parsing image bytes: {:#?}", err)),
+        };
+
+        let encoded = general_purpose::STANDARD.encode(&data);
+
+        return Ok(encoded);
+    }
+
+    Err("Cannot get image from Spotify".to_string())
 }
 
 pub async fn release_by_recording(recording_id: &String) -> Result<Release, String> {
